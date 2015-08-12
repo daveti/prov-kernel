@@ -1,0 +1,102 @@
+LPM
+
+Kernel Source: https://bitbucket.org/uf_sensei/provenance-rhel-kernel
+
+Utilities: https://bitbucket.org/uf_sensei/provenance-tools
+
+== Kernel setup ==
+The first step is to build the actual provenanced kernel and install it on the VM.  If you are unfamiliar with how to build the kernel, you should probably just look it up.
+
+On CentOS 6, this routine should work if you have the requisite dependencies:
+
+# yum install make gcc ncurses-devel rpmdevtools yum-utils qt3-devel libXi-devel kernel-devel libattr-devel libuuid-devel db4-devel zlib-devel zlib-static
+
+== Kernel configuration ==
+
+Open the kernel configuration menu:
+
+$ make menuconfig
+
+Under "Security Options", select "Enable different provenance models", then "LPM provenance monitor". Make sure the default provenance monitor is set to "Provenance Monitor".
+
+Choose one of the "Provenance Network Commitment Protocols":
+       "Hi-Fi Packet Identifiers" for benign/trusted execution environments
+       "DSA Packet Signatures" for authenticity/integrity guarantees (network throughput drops by an order of magnitude)
+
+$ make -jN (N = 2*(# of cores on system))
+
+# make modules_install install
+
+This will automatically add a boot entry in legacy grub.  Go and edit the grub.conf file to make sure that the boot option isn't hidden and you have enough time to pick a kernel.
+
+Have some Redhat Links:
+http://wiki.centos.org/HowTos/I_need_the_Kernel_Source
+https://fedoraproject.org/wiki/Building_a_custom_kernel?rd=Docs/CustomKernel
+https://access.redhat.com/site/documentation/en-US/Red_Hat_Enterprise_Linux/3/html/System_Administration_Guide/s1-custom-kernel-modularized.html
+
+== VM setup ==
+Now we need to prepare the virtual machine which will be running the provenanced kernel.  The crux of this step is getting the user-space provenance collector to run at startup.  The kernel module exposes provenance as a file in a debugfs filesystem.  Choose a location for mounting this filesystem, such as/debug or /sys/kernel/debug.  Create this directory and add it to /etc/fstab so it is mounted at startup:
+
+# mkdir /sys/kernel/debug
+# echo "debugfs /sys/kernel/debug debugfs defaults 0 0" >> /etc/fstab
+
+Compile the gz_provd daemon from the provenance-tools/ directory and install it somewhere in your path.  In order to avoid provenance recursion, mark it as exempt from provenance collection.
+$ cd provenance-tools/reporters
+$ make gz_provd
+$ su
+# cp gz_provd /usr/bin/
+# setfattr -n security.provenance -v opaque /usr/bin/gz_provd
+# chmod +s /usr/bin/gz_provd
+
+Configure your system to run gz_provd at startup by adding a line to /etc/rc.local:
+
+gz_provd /sys/kernel/debug/provenance0 /var/log/prov-$(date +%F-%T).log.gz 5000000
+
+This will flush provenance from the kernel relay every 5 seconds (5000000 microseconds) to a gzipped log file stamped with the system boot time.  The choice of a time interval is critical - all data is stored in the relay during this interval, and overflowing the relay will cause the kernel to panic.  (Note: You can modify the size of the relay in the source code.  It is a set of variables at the top of security/hifi/hifi_lsm.c).
+
+Shut down the virtual machine.
+
+== Provenance setup ==
+In order to bootstrap provenance for a system that has already been installed, we need to generate events representing what has already happened.  The provenance from previous runs of the system has already been lost, and all that remains is the filesystem and its properties.  This section describes making a "Big Bang" for the filesystems, which generates creation events for the already-existing file structure.  Creation events are important for two reasons: they record what inodes have been allocated, and they map these to a directory hierarchy in the provenance record.  Because of this, the provenance monitor will '''refuse to mount''' a filesystem which has not been run through this tool, giving the error:
+
+Missing or malformed UUID label on filesystem.  If this is
+     your root filesystem, kernel may panic or drop to initrd.
+
+The way to generate a provenance Big Bang for the filesystem is to use the pbang utility.  This cannot be done from within the to-be-provenanced machine, since <code>pbang</code> requires exclusive access to the filesystem so that it can take a consistent snapshot.  Instead, we boot from a live CD and run the utility from there.  This will mount the filesystem and create a provenance log describing its structure.  This log will be compressed and injected into the filesystem as prov-bang.log.gz, complete with an entry for itself.
+
+From your regular host, build the provenance-tools.  Next, booting the virtual machine from a live CD ISO.  Mount your regular boot disk.  Navigate to the provenance-tools directory, then copy the pbang binary into the home directory of the live CD.  Next, if your root partition is an LVM, run the pvs (or df) command and make note of the physical location of the root disk (something like /dev/mapper/...).  Then, unmount the root partition.
+
+At this point, you need to know what the device and filesystem type are for your filesystem.  If your distro's installer shielded you from this fascinating information, you can likely uncover it with parted.  In the most common case, this command will show you what you want to know:
+
+# parted /dev/sda print
+
+  Number  Start   End     Size    Type     File system     Flags
+  1      32.3kB  98.7MB  98.7MB  primary  ext2            boot
+  2      98.7MB  354MB   255MB   primary  linux-swap(v1)
+  3      354MB   10.7GB  10.4GB  primary  ext3
+
+Look for filesystems like ext2/3/4, reiserfs, or btrfs, and note the partition number on the left.  This number is appended to /dev/sda to get the device file for the partition.  On the system in the above example, the partitions of interest are /dev/sda1 and /dev/sda3.  Armed with this information, run pbang as root on the VM:
+
+# ./pbang ''device'' ''fstype''
+
+  where ''device'' is the device file for the filesystem and ''fstype'' is the filesystem type.
+
+pbang doesn't work directly on LVMs, but you can run the pvs (or df) command to find the physical location of the disk (something like /dev/mapper/...).
+
+Repeat this step for each of the VM's filesystems.  When you're done, go ahead and shut down the live system.  On the default install of CentOS 6.4, you should run pbang on 2 partitions: the boot partition (/dev/sda1), and your root partition (/dev/mapper/...).
+
+== Usage ==
+Simply boot the virtual machine using the entry for the provenanced kernel.  The user-space collector will kick in during startup and record provenance to the specified files.  They are record under /var/log.  If you want, you can move /prov-bang.log.gz to the same directory as your other logs.
+
+Description of how to manipulate the logs with the provenance-tools: coming soon!
+-----
+
+== SSHing into a Provenance-Aware Host ==
+
+OpenSSH is freaks out when a packet has *any* IP options set because it is *that worried* about source routing attacks.  Unfortunately, we use the IP Options field to embed our provenance identifiers, which means that you can't SSH directly to or from a provenance-aware host.
+
+To fix this, you need to SSH into a machine that has the provstub module enabled (see the provenance options in menuconfig).  Provstub suppresses OpenSSH's ability to check the IP Options, and also doesn't embed anything into the IP options itself.  As a result, you can use a provstub-enabled machine to connect to the provenance-aware hosts in your network.
+
+You don't need to run pbang or set any xattr's to get provstub to run, just enable it, recompile, and go.
+
+ALTERNATELY, you can SSH from the bare metal host to the VM, which doesn't seem to offend OpenSSH in the same way.

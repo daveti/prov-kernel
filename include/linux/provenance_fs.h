@@ -1,0 +1,47 @@
+#include <linux/sched.h>
+#include <linux/seq_file.h>
+#include <linux/proc_fs.h>/* Necessary because we use the proc fs */
+#include <linux/provenance.h>
+
+#ifndef CONFIG_PROVENANCE_FS
+
+/*
+static ssize_t
+read_proc(struct file *file,char __user *buf, size_t count,loff_t *offp ) 
+{
+  char *data = (char *)PDE(file->f_path.dentry->d_inode)->data;
+  long len;
+
+  if(!(data)){
+    printk(KERN_INFO "Provenance FS: Null data");
+    return 0;
+  }
+
+  len = strlen(data);
+
+  if(count > len)
+    count = len;
+
+  printk("Provenance FS: Attempting to read (%d) bytes of (%s) from file <%s>.\n",
+	 (int)count,data,file->f_path.dentry->d_name.name);
+
+  if(!copy_to_user(buf,data,count)){
+    printk("Provenance FS: User buffer is now (%s). Return val is (%d)\n",buf,(int)count);
+
+    return count;
+  }
+  else
+    return 0;
+
+}
+*/
+static const struct file_operations provenance_fs_fops = {
+  .read		= seq_read,
+};
+
+
+int __init provenance_fs_init(void);
+int provenance_fs_publish_cred(pid_t, unsigned long);
+int provenance_fs_unpublish_cred(pid_t);
+
+#endif

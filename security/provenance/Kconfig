@@ -1,0 +1,66 @@
+#
+# Provenance configuration
+#
+
+config PROVENANCE
+	bool "Enable different provenance models"
+	help
+	  This allows you to choose different provenance modules to be
+	  configured into your kernel.
+
+	  If this option is not selected, the default Linux provenance
+	  model will be used (empty).
+
+	  If you are unsure how to answer this question, answer N.
+
+choice
+	prompt "Provenance Network Commitment Protocol"
+	depends on PROVENANCE
+
+	help
+	  Select the packet commitment scheme that will be used if 
+	  the provenance module is network-aware.
+
+	config PROVENANCE_NETWORK_OFF
+		bool "Do not transmit packet identifiers"
+	config PROVENANCE_NETWORK_HIFI
+		bool "Transmit Hi-Fi packet identifiers" 
+	config PROVENANCE_NETWORK_DSA
+		bool "Transmit DSA packet signatures"
+endchoice
+
+config PROVENANCE_PROVSTUB
+	bool "Prov Stub Support"
+	depends on USB=y && PROVENANCE
+	default n
+	help
+	  This is a sample LPM module that should only be used as such.
+
+	  If you are unsure how to answer this question, answer N.
+
+source security/provenance/provmon/Kconfig
+
+choice
+	prompt "Default provenance module"
+	depends on PROVENANCE
+	default DEFAULT_PROVENANCE_PROVMON if PROVENANCE_PROVMON
+	default DEFAULT_PROVENANCE_PROVSTUB if PROVENANCE_PROVSTUB
+
+	help
+	  Select the provenance module that will be used by default if the
+	  kernel parameter provenance= is not specified.
+
+
+	config DEFAULT_PROVENANCE_PROVMON
+		bool "Provenance Monitor" if PROVENANCE_PROVMON=y
+
+	config DEFAULT_PROVENANCE_PROVSTUB
+		bool "Prov Stub" if PROVENANCE_PROVSTUB=y
+
+endchoice
+
+config DEFAULT_PROVENANCE
+	string
+	default "provmon" if DEFAULT_PROVENANCE_PROVMON
+	default "provstub" if DEFAULT_PROVENANCE_PROVSTUB
+

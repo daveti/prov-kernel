@@ -1,0 +1,22 @@
+#
+# Kernel configuration file for the Provenance Monitor provenance system
+#
+# Authors: Devin J. Pohly <djpohly@cse.psu.edu>
+#          Adam M. Bates <amb@cs.uoregon.edu>
+#
+# Copyright (C) 2013 MIT Lincoln Laboratory 
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, version 2 of the License.
+#
+
+config PROVENANCE_PROVMON
+	bool "LPM provenance monitor"
+	depends on PROVENANCE
+	default n
+	help
+	  This enables the high-fidelity provenance monitor based on the Linux Provenance Module framework.
+
+	  If you are unsure how to answer this question, answer N.
+
